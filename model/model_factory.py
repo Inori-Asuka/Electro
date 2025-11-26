@@ -1,6 +1,3 @@
-"""
-统一的 DINOv3 模型创建函数
-"""
 from typing import Optional, List
 import torch.nn as nn
 from .model import DINOv3RegressionModel, DINOv3ViTRegressionModel
@@ -24,8 +21,6 @@ def create_dinov3_model(
     multiscale_layers: Optional[List[int]] = None,  # multiscale 方案的层索引
 ) -> nn.Module:
     """
-    统一的 DINOv3 模型创建函数
-    
     Args:
         backbone_type: 'convnext' 或 'vit'
         model_path: 模型权重路径
@@ -77,7 +72,7 @@ def create_dinov3_model(
         return DINOv3RegressionModel(
             model_path=model_path,
             num_outputs=num_outputs,
-            pooling=pooling,  # ConvNeXt 只支持 'gap'，但为了统一接口保留
+            pooling=pooling,  
             head_type=head_type,
             dropout=dropout,
             freeze_backbone=freeze_backbone,

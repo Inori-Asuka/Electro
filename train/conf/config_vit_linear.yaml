@@ -6,5 +6,6 @@ exp: dinov3_vit_linear
 
 dinov3:
   backbone_type: vit
+  model_path: /data/wly/ckpt/dinov3_vitl16 /model.safetensors
   pooling: linear  # 直接线性层回归
 

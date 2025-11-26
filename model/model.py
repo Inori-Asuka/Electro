@@ -360,38 +360,25 @@ class DINOv3RegressionModel(nn.Module):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.pooling == 'multiscale':
-            # 方案4: 提取多尺度特征
             features_list = self._extract_multiscale_features(x)
             return self.head(features_list)
         elif self.pooling == 'linear':
-            # 方案1: 直接线性层回归
-            # 与原始实现一致：使用 backbone(x) 获取特征，然后通过线性层
-            # 当 num_classes=0 时，backbone(x) 返回经过 GAP 的特征 (B, C)
             features = self.backbone(x)
-            # 如果 features 是空间特征，进行 GAP
             if len(features.shape) > 2:
                 features = features.mean(dim=[2, 3])  # [B, C, H, W] -> [B, C]
             return self.head(features)
         elif self.pooling == 'attention':
-            # 方案3: Attention Pooling
-            # 将空间特征 reshape 成序列
             features = self.backbone(x)  # (B, C, H, W)
-            B, C, H, W = features.shape
-            # Reshape 成序列: (B, H*W, C)
             features_seq = features.flatten(2).transpose(1, 2)  # (B, H*W, C)
             return self.head(features_seq)
         else:
-            # 方案2: GAP (默认)
             features = self.backbone(x)
-            # 如果 features 是空间特征，进行 GAP
             if len(features.shape) > 2:
                 features = features.mean(dim=[2, 3])  # [B, C, H, W] -> [B, C]
             return self.head(features)
     
     def _extract_multiscale_features(self, x: torch.Tensor) -> List[torch.Tensor]:
         """
-        提取多尺度特征（方案4）
-        
         Args:
             x: Input image tensor [B, C, H, W]
         

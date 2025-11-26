@@ -6,8 +6,9 @@ exp: dinov3_vit_large_lora_qkv
 
 dinov3:
   backbone_type: vit
-  pooling: gap
-  head_type: mlp
+  model_path: /data/wly/ckpt/dinov3_vitl16 /model.safetensors
+  pooling: linear
+  head_type: linear
   
   use_lora: true
   lora_r: 16
