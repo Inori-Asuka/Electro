@@ -306,7 +306,7 @@ class DINOv3RegressionModel(nn.Module):
                 lora_linear = LoRALinear(module, r=lora_r, alpha=lora_alpha, dropout=lora_dropout)
                 setattr(parent, module_name, lora_linear)
             
-            print(f"[DINOv3] LoRA 成功应用到 {len(modules_to_replace)} 个 Linear 层")
+            print(f"[DINOv3 ConvNeXt] LoRA 成功应用到 {len(modules_to_replace)} 个 Linear 层 (MLP 的 fc1 和 fc2)")
                 
         elif freeze_backbone:
             for param in self.backbone.parameters():
@@ -325,9 +325,10 @@ class DINOv3RegressionModel(nn.Module):
         head_kwargs = head_kwargs or {}
         
         if pooling == 'linear':
-            # 方案1: 直接线性层回归（使用 CLS token）
+            # 方案1: 直接线性层回归
+            # 与原始实现一致：使用 backbone(x) 获取 GAP 特征，然后通过线性层
             self.head = nn.Linear(embed_dim, num_outputs)
-            print(f"[DINOv3 ConvNeXt] 方案: Linear (直接使用 CLS token)")
+            print(f"[DINOv3 ConvNeXt] 方案: Linear (直接线性层回归)")
         elif pooling == 'gap':
             # 方案2: Global Average Pooling
             linear_in_dim = embed_dim
@@ -363,25 +364,14 @@ class DINOv3RegressionModel(nn.Module):
             features_list = self._extract_multiscale_features(x)
             return self.head(features_list)
         elif self.pooling == 'linear':
-            # 方案1: 直接使用 CLS token
-            # ConvNeXt 的 forward_features 返回字典，包含 CLS token
-            feat_dict = self.backbone.forward_features(x)
-            if isinstance(feat_dict, dict):
-                cls_token = feat_dict.get('x_norm_clstoken', None)
-                if cls_token is not None:
-                    return self.head(cls_token)
-                else:
-                    # Fallback: 使用 GAP
-                    features = self.backbone(x)
-                    if len(features.shape) > 2:
-                        features = features.mean(dim=[2, 3])
-                    return self.head(features)
-            else:
-                # Fallback: 如果返回的不是字典，使用标准 forward
-                features = self.backbone(x)
-                if len(features.shape) > 2:
-                    features = features.mean(dim=[2, 3])
-                return self.head(features)
+            # 方案1: 直接线性层回归
+            # 与原始实现一致：使用 backbone(x) 获取特征，然后通过线性层
+            # 当 num_classes=0 时，backbone(x) 返回经过 GAP 的特征 (B, C)
+            features = self.backbone(x)
+            # 如果 features 是空间特征，进行 GAP
+            if len(features.shape) > 2:
+                features = features.mean(dim=[2, 3])  # [B, C, H, W] -> [B, C]
+            return self.head(features)
         elif self.pooling == 'attention':
             # 方案3: Attention Pooling
             # 将空间特征 reshape 成序列
@@ -467,13 +457,7 @@ class DINOv3RegressionModel(nn.Module):
         self.eval()
         with torch.no_grad():
             if self.pooling == 'linear':
-                # 使用 CLS token
-                feat_dict = self.backbone.forward_features(x)
-                if isinstance(feat_dict, dict):
-                    features = feat_dict.get('x_norm_clstoken', None)
-                    if features is not None:
-                        return features
-                # Fallback
+                # 与 forward 一致：使用 backbone(x)
                 features = self.backbone(x)
                 if len(features.shape) > 2:
                     features = features.mean(dim=[2, 3])

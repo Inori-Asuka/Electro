@@ -83,10 +83,25 @@ dinov3:
     hidden_dims: [2048, 1024]
 ```
 
-### LoRA 微调模块选择 (仅 ViT)
+### LoRA 微调
 
-当使用 ViT 并启用 LoRA 时，可以通过 `lora_modules` 参数选择要微调的模块：
+ConvNeXt 和 ViT 都支持 LoRA 微调。当启用 LoRA 时：
 
+- **ConvNeXt**: 自动应用到所有 `.fc1` 和 `.fc2` 的 Linear 层（MLP 模块）
+- **ViT**: 可以通过 `lora_modules` 参数选择要微调的模块
+
+**ConvNeXt LoRA 配置：**
+```yaml
+dinov3:
+  backbone_type: convnext
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  # ConvNeXt 自动应用到所有 MLP 的 fc1 和 fc2 层
+```
+
+**ViT LoRA 模块选择：**
 - **`['qkv']`**: 只微调 attention 的 QKV 投影层
 - **`['mlp']`**: 只微调 MLP 的 fc1 和 fc2 层
 - **`['qkv', 'mlp']`**: 微调 QKV 和 MLP（不包括 attention 的 proj 层）
