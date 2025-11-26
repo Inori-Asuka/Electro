@@ -1,0 +1,15 @@
+# 示例配置：ViT Large + 方案B (Attention Pooling)
+defaults:
+  - config
+
+exp: dinov3_vit_large_attention
+
+dinov3:
+  backbone_type: vit  # 使用 ViT Large
+  pooling: attention  # 方案B: 保留空间特征 + Attention Pooling
+  head_type: linear
+  
+  head_kwargs:
+    num_heads: 8  # Attention head数量
+    hidden_dim: null  # null表示使用backbone的特征维度(1024)
+

@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dataset import TEMRegressionDataset, get_transforms, split_train_test, LabelNormalizer, create_normalizer
-from model import DINOv3RegressionModel
+from model import create_dinov3_model
 from train_utils import train_one_epoch, evaluate_model, evaluate_by_group, derive_groups_from_dataset
 
 EXCLUDED_IDS = [23, 24]
@@ -129,10 +129,12 @@ def train(cfg: DictConfig):
     val_groups = derive_groups_from_dataset(val_dataset, cfg.data.data_root)
     test_groups = val_groups
     
-    # 创建模型
-    model = DINOv3RegressionModel(
+    # 创建模型（使用统一的创建函数）
+    model = create_dinov3_model(
+        backbone_type=cfg.dinov3.get('backbone_type', 'convnext'),
         model_path=cfg.dinov3.model_path,
         num_outputs=1,
+        pooling=cfg.dinov3.get('pooling', 'gap'),
         head_type=cfg.dinov3.head_type,
         dropout=cfg.training.dropout,
         freeze_backbone=cfg.dinov3.freeze_backbone,
@@ -141,13 +143,23 @@ def train(cfg: DictConfig):
         lora_r=cfg.dinov3.get('lora_r', 16),
         lora_alpha=cfg.dinov3.get('lora_alpha', 32),
         lora_dropout=cfg.dinov3.get('lora_dropout', 0.1),
+        lora_modules=cfg.dinov3.get('lora_modules', None),  # 仅 ViT: ['qkv', 'proj', 'mlp']
         head_kwargs=cfg.dinov3.get('head_kwargs', {}),
+        multiscale_layers=cfg.dinov3.get('multiscale_layers', None),
     ).to(device)
     
     trainable_params, total_params = model.get_trainable_parameters()
-    print(f"\n model: DINOv3 ConvNeXt-Large")
-    print(f"total parameters: {total_params:,}")
-    print(f"trainable parameters: {trainable_params:,}")
+    backbone_type = cfg.dinov3.get('backbone_type', 'convnext')
+    print(f"\n模型: DINOv3 {'ViT Large' if backbone_type == 'vit' else 'ConvNeXt-Large'}")
+    if backbone_type == 'vit':
+        pooling = cfg.dinov3.get('pooling', 'gap')
+        print(f"预测方案: {pooling}")
+        if pooling == 'multiscale':
+            print(f"多尺度层: {cfg.dinov3.get('multiscale_layers', [6, 12, 18, 23])}")
+        if cfg.dinov3.get('use_lora', False) and cfg.dinov3.get('lora_modules'):
+            print(f"LoRA 模块: {cfg.dinov3.get('lora_modules')}")
+    print(f"总参数量: {total_params:,}")
+    print(f"可训练参数量: {trainable_params:,}")
     
     
     if cfg.loss.type == 'mse':
@@ -374,7 +386,7 @@ def train(cfg: DictConfig):
     
     if writer:
         writer.close()
-    
+     
     return test_entry_mae_denorm, test_entry_rmse_denorm, test_entry_r2
 
 

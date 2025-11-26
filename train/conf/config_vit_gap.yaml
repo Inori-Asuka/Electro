@@ -1,0 +1,11 @@
+# 示例配置：ViT Large + 方案A (GAP + MLP)
+defaults:
+  - config
+
+exp: dinov3_vit_large_gap
+
+dinov3:
+  backbone_type: vit  # 使用 ViT Large
+  pooling: gap  # 方案A: Global Average Pooling + MLP
+  head_type: mlp
+

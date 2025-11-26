@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dataset import TEMRegressionDataset, get_transforms, split_train_test
-from model import DINOv3RegressionModel
+from model import create_dinov3_model, DINOv3ViTRegressionModel
 
 EXCLUDED_IDS = [23, 24]
 
@@ -53,9 +53,12 @@ def extract_features(cfg: DictConfig):
     # For feature extraction, disable LoRA to avoid compatibility issues
     use_lora = False
     
-    model = DINOv3RegressionModel(
+    # 使用统一的创建函数
+    model = create_dinov3_model(
+        backbone_type=cfg.dinov3.get('backbone_type', 'convnext'),
         model_path=cfg.dinov3.model_path,
         num_outputs=1,
+        pooling=cfg.dinov3.get('pooling', 'gap'),
         head_type=cfg.dinov3.head_type,
         dropout=cfg.training.dropout,
         freeze_backbone=cfg.dinov3.freeze_backbone,
@@ -64,7 +67,9 @@ def extract_features(cfg: DictConfig):
         lora_r=cfg.dinov3.get('lora_r', 16),
         lora_alpha=cfg.dinov3.get('lora_alpha', 32),
         lora_dropout=cfg.dinov3.get('lora_dropout', 0.1),
+        lora_modules=cfg.dinov3.get('lora_modules', None),
         head_kwargs=cfg.dinov3.get('head_kwargs', {}),
+        multiscale_layers=cfg.dinov3.get('multiscale_layers', None),
     ).to(device)
     
     # 加载权重

@@ -1,0 +1,17 @@
+# 示例配置：ViT Large + LoRA 只微调 MLP
+defaults:
+  - config
+
+exp: dinov3_vit_large_lora_mlp
+
+dinov3:
+  backbone_type: vit
+  pooling: gap
+  head_type: mlp
+  
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_modules: ['mlp']  # 只微调 MLP 模块
+

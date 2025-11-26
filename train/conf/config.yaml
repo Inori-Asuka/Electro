@@ -9,7 +9,20 @@ data:
 
 # DINOv3 配置
 dinov3:
+  # 模型类型: 'convnext' 或 'vit'
+  backbone_type: convnext  # 'convnext' 使用 ConvNeXt-Large, 'vit' 使用 ViT Large
+  
   model_path: /data/wly/ckpt/dinov3/model.safetensors
+  
+  # 预测方案 (仅当 backbone_type='vit' 时有效)
+  # 'gap': 方案A - Global Average Pooling + MLP (适用于整体性质)
+  # 'attention': 方案B - 保留空间特征 + Attention Pooling (适用于局部缺陷)
+  # 'multiscale': 方案C - 多尺度特征融合 (适用于宏观+微观结构)
+  pooling: gap  # 'gap', 'attention', 'multiscale'
+  
+  # 多尺度融合的层索引 (仅当 pooling='multiscale' 时有效)
+  multiscale_layers: [6, 12, 18, 23]  # ViT Large 有24层，选择4个不同深度
+  
   head_type: linear # 'linear', 'mlp', 'attention', 'gated', 'residual'
   # freeze_backbone: true
   freeze_backbone: false  # 全参数微调
@@ -19,9 +32,18 @@ dinov3:
   lora_r: 16
   lora_alpha: 32
   lora_dropout: 0.1
+  # LoRA 模块选择 (仅 ViT): ['qkv', 'proj', 'mlp'] 或其组合
+  # 例如: ['qkv', 'mlp'] 表示只微调 attention 的 qkv 和 mlp 模块
+  # 默认: null (全部微调)
+  lora_modules: null  # null 或 ['qkv'], ['mlp'], ['qkv', 'mlp'], ['qkv', 'proj', 'mlp'] 等
   
   head_kwargs:  # 回归头的额外参数
     hidden_dims: [512, 256, 128]
+    # 对于 pooling='attention' 方案，可以配置:
+    # num_heads: 8
+    # hidden_dim: null  # null表示使用backbone的特征维度
+    # 对于 pooling='multiscale' 方案，可以配置:
+    # hidden_dims: [2048, 1024]  # 多尺度融合的隐藏层维度
 
 training:
   batch_size: 8
