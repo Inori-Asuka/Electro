@@ -1,0 +1,54 @@
+defaults:
+  - _self_
+
+exp: dinov3_convnext_large
+
+data:
+  data_root: /data/wly/data/eletric
+  image_size: 224
+
+# DINOv3 配置
+dinov3:
+  model_path: /data/wly/ckpt/dinov3/model.safetensors
+  head_type: linear # 'linear', 'mlp', 'attention', 'gated', 'residual'
+  # freeze_backbone: true
+  freeze_backbone: false  # 全参数微调
+  # freeze_layers: ['blocks.0', 'blocks.1']  # 部分冻结
+
+  use_lora: true  # LoRA微调
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  
+  head_kwargs:  # 回归头的额外参数
+    hidden_dims: [512, 256, 128]
+
+training:
+  batch_size: 8
+  epochs: 500
+  lr: 1.0e-03 
+  weight_decay: 1.0e-05
+  optimizer: adam  # 'adam', 'adamw', 'sgd'
+  patience: 75
+  best_metric: entry_mae_denorm  # 'entry_mae_denorm', 'entry_rmse', 'val_mae_denorm'
+  dropout: 0.5
+
+loss:
+  type: mse  # 'mse', 'smooth_l1', 'huber'
+  smooth_l1_beta: 1.0
+  huber_delta: 1.0
+
+scheduler:
+  type: cosine  # 'plateau', 'cosine', 'onecycle', null
+  warmup_epochs: 0
+
+normalization:
+  method: null # 'standard', 'minmax', 'robust', null
+
+misc:
+  num_workers: 4
+  seed: 42
+  max_grad_norm: 1.0
+  use_tensorboard: true
+  log_dir: /data/wly/ckpt/Tem_eapp/logs/${exp}
+  checkpoint_dir: /data/wly/ckpt/Tem_eapp/checkpoints/${exp}
