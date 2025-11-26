@@ -16,7 +16,7 @@ dinov3:
   
   pooling: gap  # 'linear', 'gap', 'attention', 'multiscale'
   
-  multiscale_layers: null  # null 使用默认值: ConvNeXt=[1,2,3], ViT=[6,12,18,23]
+  multiscale_layers: null  # null: ConvNeXt=[1,2,3], ViT=[6,12,18,23]
   
   head_type: linear # 'linear', 'mlp', 'attention', 'gated', 'residual'
 

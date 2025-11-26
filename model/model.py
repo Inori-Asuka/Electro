@@ -657,19 +657,27 @@ class DINOv3ViTRegressionModel(nn.Module):
                 lora_modules = [lora_modules]
             
             modules_to_replace = {}
+            module_counts = {'qkv': 0, 'proj': 0, 'mlp': 0}
+            
             for name, module in self.backbone.named_modules():
                 if isinstance(module, nn.Linear):
                     # 检查是否匹配指定的模块类型
                     should_replace = False
+                    module_type = None
+                    
                     if 'qkv' in lora_modules and ('attn' in name and ('qkv' in name or name.endswith('.qkv'))):
                         should_replace = True
+                        module_type = 'qkv'
                     elif 'proj' in lora_modules and ('attn' in name and ('proj' in name or name.endswith('.proj'))):
                         should_replace = True
+                        module_type = 'proj'
                     elif 'mlp' in lora_modules and ('mlp' in name and ('fc1' in name or 'fc2' in name)):
                         should_replace = True
+                        module_type = 'mlp'
                     
                     if should_replace:
                         modules_to_replace[name] = module
+                        module_counts[module_type] += 1
             
             sorted_names = sorted(modules_to_replace.keys(), key=lambda x: x.count('.'), reverse=True)
             
@@ -686,8 +694,10 @@ class DINOv3ViTRegressionModel(nn.Module):
                 lora_linear = LoRALinear(module, r=lora_r, alpha=lora_alpha, dropout=lora_dropout)
                 setattr(parent, module_name, lora_linear)
             
+            # 打印详细信息
             print(f"[DINOv3 ViT] LoRA 成功应用到 {len(modules_to_replace)} 个 Linear 层")
-            print(f"[DINOv3 ViT] LoRA 模块: {lora_modules}")
+            print(f"[DINOv3 ViT] LoRA 模块配置: {lora_modules}")
+            print(f"[DINOv3 ViT] LoRA 应用详情: qkv={module_counts['qkv']}, proj={module_counts['proj']}, mlp={module_counts['mlp']}")
                 
         elif freeze_backbone:
             for param in self.backbone.parameters():

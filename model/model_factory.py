@@ -2,6 +2,12 @@ from typing import Optional, List
 import torch.nn as nn
 from .model import DINOv3RegressionModel, DINOv3ViTRegressionModel
 
+try:
+    from omegaconf import OmegaConf
+    OMEGACONF_AVAILABLE = True
+except ImportError:
+    OMEGACONF_AVAILABLE = False
+
 
 def create_dinov3_model(
     backbone_type: str = 'convnext',  # 'convnext' 或 'vit'
@@ -46,10 +52,37 @@ def create_dinov3_model(
     # 准备 head_kwargs
     if head_kwargs is None:
         head_kwargs = {}
+    else:
+        # 如果 head_kwargs 是 OmegaConf 对象，转换为普通字典
+        if OMEGACONF_AVAILABLE and isinstance(head_kwargs, OmegaConf):
+            head_kwargs = OmegaConf.to_container(head_kwargs, resolve=True)
+        # 确保是字典类型
+        if not isinstance(head_kwargs, dict):
+            head_kwargs = dict(head_kwargs)
+        else:
+            head_kwargs = head_kwargs.copy()
+    
+    # 转换可能为 OmegaConf 对象的参数
+    def _convert_omegaconf_to_python(obj):
+        """将 OmegaConf 对象转换为 Python 原生类型"""
+        if obj is None:
+            return None
+        if OMEGACONF_AVAILABLE:
+            try:
+                from omegaconf import ListConfig, DictConfig
+                if isinstance(obj, (ListConfig, DictConfig)):
+                    return OmegaConf.to_container(obj, resolve=True)
+            except ImportError:
+                pass
+        return obj
+    
+    # 转换参数
+    lora_modules = _convert_omegaconf_to_python(lora_modules)
+    multiscale_layers = _convert_omegaconf_to_python(multiscale_layers)
+    freeze_layers = _convert_omegaconf_to_python(freeze_layers)
     
     # 对于 ViT，将 lora_modules 添加到 head_kwargs
     if backbone_type == 'vit' and lora_modules is not None:
-        head_kwargs = head_kwargs.copy()
         head_kwargs['lora_modules'] = lora_modules
     
     if backbone_type == 'vit':

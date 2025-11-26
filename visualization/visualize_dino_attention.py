@@ -168,18 +168,21 @@ def visualize_dino_attention(
     expected_patches = (target_size // patch_size) ** 2
     num_registers = N_tokens - 1 - expected_patches  # 减去CLS token
     
-    # 绘图设置
-    n_frames = len(image_paths)
-    cols = min(4, n_frames)
-    rows = math.ceil(n_frames / cols)
-    
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4))
-    if isinstance(axes, np.ndarray):
-        axes = axes.flatten()
+    # 确定保存目录
+    if save_path:
+        if os.path.isdir(save_path):
+            save_dir = save_path
+        else:
+            save_dir = os.path.dirname(save_path)
+            if not save_dir:
+                save_dir = '.'
+        os.makedirs(save_dir, exist_ok=True)
     else:
-        axes = [axes]
+        save_dir = None
     
-    for frame_idx in range(n_frames):
+    # 为每张图片单独创建和保存可视化
+    saved_paths = []
+    for frame_idx in range(len(image_paths)):
         if frame_idx >= B:
             break
             
@@ -214,31 +217,42 @@ def visualize_dino_attention(
         # 归一化
         attn_resized = (attn_resized - attn_resized.min()) / (attn_resized.max() - attn_resized.min() + 1e-8)
         
-        # 可视化
-        ax = axes[frame_idx]
-        ax.imshow(original_img)
+        # 为每张图片创建单独的figure
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
         
+        # 显示原图（左列）
+        axes[0].imshow(original_img)
+        axes[0].set_title(f"Original Image\n{os.path.basename(img_path)}", fontsize=12)
+        axes[0].axis('off')
+        
+        # 显示可视化图（右列）
         if threshold is not None:
             # 使用阈值创建mask
             mask = attn_resized > threshold
-            ax.imshow(mask.astype(float), cmap='jet', alpha=0.5)
+            axes[1].imshow(original_img)
+            axes[1].imshow(mask.astype(float), cmap='jet', alpha=0.5)
+            axes[1].set_title(f"Attention Map (threshold={threshold:.2f})", fontsize=12)
         else:
-            ax.imshow(attn_resized, cmap='jet', alpha=0.5)
+            # 显示纯attention map
+            axes[1].imshow(attn_resized, cmap='jet')
+            axes[1].set_title("Attention Heatmap", fontsize=12)
+        axes[1].axis('off')
         
-        ax.set_title(f"Image {frame_idx}\n{os.path.basename(img_path)}", fontsize=10)
-        ax.axis('off')
+        plt.tight_layout()
+        
+        # 保存每张图片
+        if save_dir:
+            # 生成文件名
+            img_basename = os.path.splitext(os.path.basename(img_path))[0]
+            output_path = os.path.join(save_dir, f'dino_attention_{img_basename}_{frame_idx}.png')
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            saved_paths.append(output_path)
+            print(f"Saved: {output_path}")
+        
+        plt.close()
     
-    # 隐藏多余的subplot
-    for j in range(n_frames, len(axes)):
-        axes[j].axis('off')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Attention visualization saved to: {save_path}")
-    
-    return fig
+    # 返回第一张图片的figure（用于显示，如果不需要可以返回None）
+    return None if not saved_paths else saved_paths
 
 
 def get_dino_multiscale_features(model, img_tensor, dtype, multiscale_layers: List[int] = [6, 12, 18, 23]):
@@ -364,25 +378,38 @@ def visualize_dino_multiscale_features(
     n_layers = len(multiscale_feats)
     n_frames = len(image_paths)
     
-    # 绘图设置 (Rows=Images, Cols=Layers+Original)
-    fig, axes = plt.subplots(n_frames, n_layers + 1, figsize=((n_layers + 1) * 4, n_frames * 4))
-    if n_frames == 1:
-        axes = axes.reshape(1, -1)
+    # 确定保存目录
+    if save_path:
+        if os.path.isdir(save_path):
+            save_dir = save_path
+        else:
+            save_dir = os.path.dirname(save_path)
+            if not save_dir:
+                save_dir = '.'
+        os.makedirs(save_dir, exist_ok=True)
+    else:
+        save_dir = None
     
     # 计算 Token 信息 (用于去除 CLS/Registers)
     _, N_tokens, _ = multiscale_feats[0].shape
     expected_patches = (target_size // patch_size) ** 2
     num_registers = N_tokens - 1 - expected_patches
 
+    saved_paths = []
+    # 为每张图片单独创建和保存可视化
     for img_idx in range(n_frames):
+        # 为每张图片创建单独的figure
+        fig, axes = plt.subplots(1, n_layers + 1, figsize=((n_layers + 1) * 4, 4))
+        if n_layers == 0:
+            axes = [axes]
+        
         # --- A. 显示原图 ---
         img_path = image_paths[img_idx]
         original_img = np.array(Image.open(img_path).convert('RGB'))
         
-        ax_orig = axes[img_idx, 0]
-        ax_orig.imshow(original_img)
-        ax_orig.set_title(f"Original\n{os.path.basename(img_path)}", fontsize=10)
-        ax_orig.axis('off')
+        axes[0].imshow(original_img)
+        axes[0].set_title(f"Original\n{os.path.basename(img_path)}", fontsize=10)
+        axes[0].axis('off')
 
         # --- B. 处理每一层的特征并显示 PCA ---
         for layer_idx, feats in enumerate(multiscale_feats):
@@ -421,26 +448,36 @@ def visualize_dino_multiscale_features(
             feat_resized = cv2.resize(feat_map, (W_orig, H_orig), interpolation=cv2.INTER_NEAREST)
             
             # 显示
-            ax = axes[img_idx, layer_idx + 1]
+            ax = axes[layer_idx + 1]
             ax.imshow(feat_resized)
             ax.set_title(f"Layer {multiscale_layers[layer_idx]}\nSemantic PCA", fontsize=10)
             ax.axis('off')
 
-    plt.tight_layout()
+        plt.tight_layout()
+        
+        # 保存每张图片
+        if save_dir:
+            img_basename = os.path.splitext(os.path.basename(img_path))[0]
+            output_path = os.path.join(save_dir, f'dino_multiscale_{img_basename}_{img_idx}.png')
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            saved_paths.append(output_path)
+            print(f"Saved: {output_path}")
+        
+        plt.close()
     
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Multiscale visualization saved to: {save_path}")
-    
-    return fig
+    return saved_paths if saved_paths else None
 
 
 def main():
     parser = argparse.ArgumentParser(description="可视化 DINOv3 ViT Attention Maps")
     parser.add_argument('--model_path', type=str, required=True,
                        help='DINOv3模型权重路径 (.safetensors)')
-    parser.add_argument('--image_paths', type=str, nargs='+', required=True,
-                       help='要可视化的图像路径列表')
+    parser.add_argument('--image_paths', type=str, nargs='+', default=None,
+                       help='要可视化的图像路径列表（如果提供，将使用这些图像）')
+    parser.add_argument('--config_path', type=str, default=None,
+                       help='配置文件路径（用于从数据集选择样本）')
+    parser.add_argument('--num_samples', type=int, default=10,
+                       help='从数据集中随机选择的样本数量（仅当使用 --config_path 时有效）')
     parser.add_argument('--output_dir', type=str, default='./visualizations',
                        help='输出目录')
     parser.add_argument('--model_type', type=str, default='dinov3', choices=['dinov2', 'dinov3'],
@@ -458,20 +495,79 @@ def main():
     
     args = parser.parse_args()
     
+    # 检查参数组合
+    if args.image_paths is None and args.config_path is None:
+        parser.error("必须提供 --image_paths 或 --config_path 参数之一")
+    
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     dtype = torch.float32
     
     print(f"Using device: {device}, dtype: {dtype}")
     
-    # 加载模型
-    from safetensors.torch import load_file
-    import timm
+    # 检查模型文件类型
+    model_path = args.model_path
+    if not os.path.exists(model_path):
+        print(f"Error: Model path {model_path} does not exist")
+        return
     
-    model_name = "vit_large_patch16_dinov3.lvd1689m" if args.model_type == 'dinov3' else "vit_large_patch14_dinov2"
-    model = timm.create_model(model_name, pretrained=False, num_classes=0, dynamic_img_size=True)
+    model_ext = os.path.splitext(model_path)[1].lower()
     
-    if os.path.exists(args.model_path):
-        state_dict = load_file(args.model_path)
+    # 如果是 .pth 文件，使用训练后的模型（需要配置文件）
+    if model_ext == '.pth':
+        if args.config_path is None:
+            print("Error: When loading .pth checkpoint, --config_path is required")
+            return
+        
+        from omegaconf import OmegaConf
+        from model.model_factory import create_dinov3_model
+        
+        cfg = OmegaConf.load(args.config_path)
+        
+        # 禁用 LoRA 以避免兼容性问题
+        use_lora = False
+        
+        # 创建模型
+        model = create_dinov3_model(
+            backbone_type=cfg.dinov3.get('backbone_type', 'vit'),
+            model_path=cfg.dinov3.model_path,  # 原始 DINOv3 权重路径
+            num_outputs=1,
+            pooling=cfg.dinov3.get('pooling', 'gap'),
+            head_type=cfg.dinov3.head_type,
+            dropout=cfg.training.dropout,
+            freeze_backbone=cfg.dinov3.freeze_backbone,
+            freeze_layers=cfg.dinov3.get('freeze_layers', None),
+            use_lora=use_lora,
+            lora_r=cfg.dinov3.get('lora_r', 16),
+            lora_alpha=cfg.dinov3.get('lora_alpha', 32),
+            lora_dropout=cfg.dinov3.get('lora_dropout', 0.1),
+            lora_modules=cfg.dinov3.get('lora_modules', None),
+            head_kwargs=cfg.dinov3.get('head_kwargs', {}),
+            multiscale_layers=cfg.dinov3.get('multiscale_layers', None),
+        ).to(device)
+        
+        # 加载训练后的权重
+        checkpoint = torch.load(model_path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        else:
+            model.load_state_dict(checkpoint, strict=False)
+        
+        print(f"Loaded trained model from: {model_path}")
+        # 对于可视化，我们只需要 backbone
+        if hasattr(model, 'backbone'):
+            model = model.backbone
+        else:
+            print("Warning: Model does not have 'backbone' attribute, using model directly")
+    
+    # 如果是 .safetensors 文件，加载原始 DINOv3 权重
+    elif model_ext == '.safetensors':
+        from safetensors.torch import load_file
+        import timm
+        
+        model_name = "vit_large_patch16_dinov3.lvd1689m" if args.model_type == 'dinov3' else "vit_large_patch14_dinov2"
+        model = timm.create_model(model_name, pretrained=False, num_classes=0, dynamic_img_size=True)
+        
+        state_dict = load_file(model_path)
         if "model" in state_dict:
             state_dict = state_dict["model"]
         cleaned_state_dict = {}
@@ -483,35 +579,90 @@ def main():
         print(f"{args.model_type} Loading Weights Result:")
         print(f" - Missing keys: {len(missing_keys)}")
         print(f" - Unexpected keys: {len(unexpected_keys)}")
+        
+        model = model.to(device)
+    
     else:
-        print(f"Error: Model path {args.model_path} does not exist")
+        print(f"Error: Unsupported model file format: {model_ext}")
+        print("Supported formats: .pth (PyTorch checkpoint), .safetensors (DINOv3 weights)")
         return
     
-    model = model.to(device)
     model.eval()
-    print(f"{args.model_type} model loaded successfully!")
+    print(f"Model loaded successfully!")
+    
+    # 确定要可视化的图像路径
+    image_paths = args.image_paths
+    
+    # 如果提供了 image_paths，直接使用；否则从数据集中选择样本
+    if image_paths is None or len(image_paths) == 0:
+        # 如果没有提供 image_paths，需要从数据集选择
+        if args.config_path is None:
+            print("Error: 必须提供 --image_paths 或 --config_path 参数之一")
+            return
+        
+        from omegaconf import OmegaConf
+        from dataset import TEMRegressionDataset, get_transforms
+        
+        # 加载配置文件（如果之前没有加载过）
+        try:
+            cfg  # 检查是否已定义
+        except NameError:
+            cfg = OmegaConf.load(args.config_path)
+        
+        excel_path = os.path.join(cfg.data.data_root, 'TEM-EA.xlsx')
+        
+        # 创建数据集
+        dataset = TEMRegressionDataset(
+            cfg.data.data_root,
+            excel_path,
+            material_ids=None,
+            transform=get_transforms('test', cfg.data.image_size),
+            use_cleaned=True,
+            normalizer=None
+        )
+        
+        # 随机选择样本
+        if len(dataset) == 0:
+            print("Error: Dataset is empty")
+            return
+        
+        num_samples = min(args.num_samples, len(dataset))
+        indices = np.random.choice(len(dataset), num_samples, replace=False)
+        
+        # 获取图像路径
+        image_paths = [dataset.data_list[idx]['image_path'] for idx in indices]
+        print(f"从数据集中随机选择了 {num_samples} 个样本")
+    else:
+        # 使用指定的图像路径
+        print(f"使用指定的 {len(image_paths)} 张图像进行可视化")
+    
+    if image_paths is None or len(image_paths) == 0:
+        print("Error: No images to visualize")
+        return
     
     # 创建输出目录
     os.makedirs(args.output_dir, exist_ok=True)
     
     # 可视化
     if args.mode in ['attention', 'both']:
-        save_path = os.path.join(args.output_dir, 'dino_attention.png')
-        fig = visualize_dino_attention(
-            args.image_paths, model, args.model_type, str(device), dtype,
-            args.threshold, args.target_size, args.patch_size, save_path
+        save_dir = os.path.join(args.output_dir, 'dino_attention')
+        os.makedirs(save_dir, exist_ok=True)
+        saved_paths = visualize_dino_attention(
+            image_paths, model, args.model_type, str(device), dtype,
+            args.threshold, args.target_size, args.patch_size, save_dir
         )
-        if fig:
-            plt.show()
+        if saved_paths:
+            print(f"\nSaved {len(saved_paths)} attention visualizations to: {save_dir}")
     
     if args.mode in ['multiscale', 'both']:
-        save_path = os.path.join(args.output_dir, 'dino_multiscale.png')
-        fig = visualize_dino_multiscale_features(
-            args.image_paths, model, args.model_type, str(device), dtype,
-            args.target_size, args.patch_size, save_path=save_path
+        save_dir = os.path.join(args.output_dir, 'dino_multiscale')
+        os.makedirs(save_dir, exist_ok=True)
+        saved_paths = visualize_dino_multiscale_features(
+            image_paths, model, args.model_type, str(device), dtype,
+            args.target_size, args.patch_size, multiscale_layers=[6, 12, 18, 23], save_path=save_dir
         )
-        if fig:
-            plt.show()
+        if saved_paths:
+            print(f"\nSaved {len(saved_paths)} multiscale visualizations to: {save_dir}")
     
     print(f"\nVisualization completed! Results saved to: {args.output_dir}")
 

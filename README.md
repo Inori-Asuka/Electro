@@ -145,9 +145,7 @@ python visualize_ml_models.py --features_dir ../checkpoints/my_experiment/featur
 #### DINO Attention Visualization
 ```bash
 cd visualization
-python visualize_dino_attention.py \
-    --model_path /path/to/dinov3_vitl16.safetensors \
-    --image_paths img1.jpg img2.jpg \
-    --output_dir ./visualizations \
-    --mode both  # 'attention', 'multiscale', 或 'both'
+python visualize_dino_attention.py --model_path /path/to/dinov3_vitl16.safetensors --config_path ../checkpoints/my_experiment/config.yaml --num_samples 10 --output_dir ./visualizations --mode both
+
+python visualize_dino_attention.py --model_path /path/to/dinov3_vitl16.safetensors --image_paths img1.jpg img2.jpg --output_dir ./visualizations
 ```
