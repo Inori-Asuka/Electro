@@ -232,17 +232,19 @@ def create_regression_head(head_type: str, input_dim: int, output_dim: int = 1,
 
 class DINOv3RegressionModel(nn.Module):
     """基于DINOv3 ConvNeXt-Large的回归模型
-    支持特征融合（多层CLS token + Patch token平均池化）
-    
-    注意：ConvNeXt 使用 GAP (Global Average Pooling) 作为默认的 pooling 方式
+    支持四种 pooling 方案：
+    - 'linear': 直接线性层回归（使用 CLS token）
+    - 'gap': Global Average Pooling
+    - 'attention': Attention Pooling（将空间特征 reshape 成序列）
+    - 'multiscale': 多尺度特征融合
     """
     
     def __init__(
         self,
         model_path: str,
         num_outputs: int = 1,
-        pooling: str = 'gap',  # 为了统一接口，但 ConvNeXt 只支持 'gap'
-        head_type: str = 'mlp',
+        pooling: str = 'gap',  # 'linear', 'gap', 'attention', 'multiscale'
+        head_type: str = 'linear',  # 对于 linear pooling，head_type 会被忽略
         dropout: float = 0.5,
         freeze_backbone: bool = False,
         freeze_layers: Optional[List[str]] = None,
@@ -251,17 +253,15 @@ class DINOv3RegressionModel(nn.Module):
         lora_alpha: int = 32,
         lora_dropout: float = 0.1,
         head_kwargs: Optional[dict] = None,
+        multiscale_layers: Optional[List[int]] = None,  # 用于 multiscale 方案，指定要提取的 stage 索引
     ):
         super().__init__()
         
         self.model_path = model_path
         self.freeze_backbone = freeze_backbone
         self.use_lora = use_lora
-        self.pooling = pooling  # 统一接口，但 ConvNeXt 只支持 'gap'
-        
-        if pooling != 'gap':
-            print(f"[DINOv3 ConvNeXt] Warning: pooling='{pooling}' 不支持，将使用 'gap'")
-            self.pooling = 'gap'
+        self.pooling = pooling
+        self.multiscale_layers = multiscale_layers or [1, 2, 3]  # ConvNeXt 有4个 stage，默认提取后3个
         
         # 创建ConvNeXt-Large结构
         self.backbone = timm.create_model(
@@ -283,9 +283,6 @@ class DINOv3RegressionModel(nn.Module):
         
         # 获取特征维度
         embed_dim = self.backbone.num_features
-        
-        # 计算回归头的输入维度（使用最后一层的特征）
-        linear_in_dim = embed_dim
         
         # 设置微调策略（顺序很重要：先处理LoRA，再处理freeze）
         if use_lora:
@@ -324,16 +321,138 @@ class DINOv3RegressionModel(nn.Module):
         else:
             print("[DINOv3] 全参数微调")
         
+        # 根据 pooling 方案创建不同的头
         head_kwargs = head_kwargs or {}
-        self.head = create_regression_head(
-            head_type, linear_in_dim, num_outputs, dropout, **head_kwargs
-        )
-        print(f"[DINOv3] 回归头类型: {head_type}")
-        print(f"[DINOv3] 特征维度: {linear_in_dim}")
+        
+        if pooling == 'linear':
+            # 方案1: 直接线性层回归（使用 CLS token）
+            self.head = nn.Linear(embed_dim, num_outputs)
+            print(f"[DINOv3 ConvNeXt] 方案: Linear (直接使用 CLS token)")
+        elif pooling == 'gap':
+            # 方案2: Global Average Pooling
+            linear_in_dim = embed_dim
+            self.head = create_regression_head(
+                head_type, linear_in_dim, num_outputs, dropout, **head_kwargs
+            )
+            print(f"[DINOv3 ConvNeXt] 方案: GAP + {head_type}")
+        elif pooling == 'attention':
+            # 方案3: Attention Pooling
+            # 将空间特征 reshape 成序列，然后使用 AttentionPoolingHead
+            num_heads = head_kwargs.get('num_heads', 8)
+            hidden_dim = head_kwargs.get('hidden_dim', None)
+            self.head = AttentionPoolingHead(
+                embed_dim, num_outputs, dropout, num_heads, hidden_dim
+            )
+            print(f"[DINOv3 ConvNeXt] 方案: Attention Pooling (heads={num_heads})")
+        elif pooling == 'multiscale':
+            # 方案4: 多尺度特征融合
+            num_scales = len(self.multiscale_layers)
+            hidden_dims = head_kwargs.get('hidden_dims', [embed_dim * 2, embed_dim])
+            self.head = MultiScaleFusionHead(
+                embed_dim, num_outputs, dropout, num_scales, hidden_dims
+            )
+            print(f"[DINOv3 ConvNeXt] 方案: Multiscale (stages={self.multiscale_layers})")
+        else:
+            raise ValueError(f"不支持的 pooling 方案: {pooling}。可选: 'linear', 'gap', 'attention', 'multiscale'")
+        
+        print(f"[DINOv3 ConvNeXt] 特征维度: {embed_dim}")
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.backbone(x)
-        return self.head(features)
+        if self.pooling == 'multiscale':
+            # 方案4: 提取多尺度特征
+            features_list = self._extract_multiscale_features(x)
+            return self.head(features_list)
+        elif self.pooling == 'linear':
+            # 方案1: 直接使用 CLS token
+            # ConvNeXt 的 forward_features 返回字典，包含 CLS token
+            feat_dict = self.backbone.forward_features(x)
+            if isinstance(feat_dict, dict):
+                cls_token = feat_dict.get('x_norm_clstoken', None)
+                if cls_token is not None:
+                    return self.head(cls_token)
+                else:
+                    # Fallback: 使用 GAP
+                    features = self.backbone(x)
+                    if len(features.shape) > 2:
+                        features = features.mean(dim=[2, 3])
+                    return self.head(features)
+            else:
+                # Fallback: 如果返回的不是字典，使用标准 forward
+                features = self.backbone(x)
+                if len(features.shape) > 2:
+                    features = features.mean(dim=[2, 3])
+                return self.head(features)
+        elif self.pooling == 'attention':
+            # 方案3: Attention Pooling
+            # 将空间特征 reshape 成序列
+            features = self.backbone(x)  # (B, C, H, W)
+            B, C, H, W = features.shape
+            # Reshape 成序列: (B, H*W, C)
+            features_seq = features.flatten(2).transpose(1, 2)  # (B, H*W, C)
+            return self.head(features_seq)
+        else:
+            # 方案2: GAP (默认)
+            features = self.backbone(x)
+            # 如果 features 是空间特征，进行 GAP
+            if len(features.shape) > 2:
+                features = features.mean(dim=[2, 3])  # [B, C, H, W] -> [B, C]
+            return self.head(features)
+    
+    def _extract_multiscale_features(self, x: torch.Tensor) -> List[torch.Tensor]:
+        """
+        提取多尺度特征（方案4）
+        
+        Args:
+            x: Input image tensor [B, C, H, W]
+        
+        Returns:
+            features_list: List of (B, N, C) tensors from different stages
+        """
+        features_list = []
+        
+        def hook_fn(module, input, output):
+            # output 是 stage 的输出 (B, C, H, W)
+            # 转换为序列格式 (B, H*W, C)
+            if len(output.shape) == 4:
+                B, C, H, W = output.shape
+                output_seq = output.flatten(2).transpose(1, 2)  # (B, H*W, C)
+                features_list.append(output_seq)
+            else:
+                features_list.append(output)
+        
+        hooks = []
+        
+        # 注册 hooks 到指定的 stages
+        if hasattr(self.backbone, 'stages'):
+            stages = self.backbone.stages
+            for stage_idx in self.multiscale_layers:
+                if 0 <= stage_idx < len(stages):
+                    # Hook 到 stage 的最后一个 block
+                    stage = stages[stage_idx]
+                    if hasattr(stage, 'blocks') and len(stage.blocks) > 0:
+                        last_block = stage.blocks[-1]
+                        hooks.append(last_block.register_forward_hook(hook_fn))
+                    else:
+                        hooks.append(stage.register_forward_hook(hook_fn))
+        else:
+            # Fallback: 如果找不到 stages，使用 forward_features
+            print("[DINOv3 ConvNeXt] Warning: 无法找到 stages，使用 forward_features 作为 fallback")
+            feat_dict = self.backbone.forward_features(x)
+            if isinstance(feat_dict, dict):
+                # 提取 patch tokens
+                patch_tokens = feat_dict.get('x_norm_patchtokens', None)
+                if patch_tokens is not None:
+                    return [patch_tokens]
+            return [self.backbone(x)]
+        
+        # 前向传播（保持梯度流）
+        _ = self.backbone(x)
+        
+        # 移除 hooks
+        for h in hooks:
+            h.remove()
+        
+        return features_list
     
     def extract_features(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -343,15 +462,43 @@ class DINOv3RegressionModel(nn.Module):
             x: Input image tensor [B, C, H, W]
         
         Returns:
-            features: Extracted features [B, embed_dim]
+            features: Extracted features [B, embed_dim] or [B, N, embed_dim] depending on pooling
         """
         self.eval()
         with torch.no_grad():
-            features = self.backbone(x)
-            # If features are spatial, perform global average pooling
-            if len(features.shape) > 2:
-                features = features.mean(dim=[2, 3])  # [B, C, H, W] -> [B, C]
-        return features
+            if self.pooling == 'linear':
+                # 使用 CLS token
+                feat_dict = self.backbone.forward_features(x)
+                if isinstance(feat_dict, dict):
+                    features = feat_dict.get('x_norm_clstoken', None)
+                    if features is not None:
+                        return features
+                # Fallback
+                features = self.backbone(x)
+                if len(features.shape) > 2:
+                    features = features.mean(dim=[2, 3])
+                return features
+            elif self.pooling == 'gap':
+                features = self.backbone(x)
+                if len(features.shape) > 2:
+                    features = features.mean(dim=[2, 3])  # [B, C, H, W] -> [B, C]
+                return features
+            elif self.pooling == 'attention':
+                # 返回序列特征
+                features = self.backbone(x)  # (B, C, H, W)
+                B, C, H, W = features.shape
+                features_seq = features.flatten(2).transpose(1, 2)  # (B, H*W, C)
+                return features_seq
+            else:  # multiscale
+                features_list = self._extract_multiscale_features(x)
+                # 返回第一个特征（可以修改为返回所有特征）
+                if features_list:
+                    return features_list[0]
+                else:
+                    features = self.backbone(x)
+                    if len(features.shape) > 2:
+                        features = features.mean(dim=[2, 3])
+                    return features
     
     def get_trainable_parameters(self) -> Tuple[int, int]:
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -468,17 +615,18 @@ class MultiScaleFusionHead(nn.Module):
 
 class DINOv3ViTRegressionModel(nn.Module):
     """基于DINOv3 ViT Large的回归模型
-    支持三种方案：
-    - 方案A: GAP + MLP (pooling='gap')
-    - 方案B: 保留空间特征 + Attention Pooling (pooling='attention')
-    - 方案C: 多尺度特征融合 (pooling='multiscale')
+    支持四种 pooling 方案：
+    - 'linear': 直接线性层回归（使用 CLS token）
+    - 'gap': Global Average Pooling
+    - 'attention': Attention Pooling（保留空间特征）
+    - 'multiscale': 多尺度特征融合
     """
     
     def __init__(
         self,
         model_path: str,
         num_outputs: int = 1,
-        pooling: str = 'gap',  # 'gap', 'attention', 'multiscale'
+        pooling: str = 'gap',  # 'linear', 'gap', 'attention', 'multiscale'
         head_type: str = 'mlp',
         dropout: float = 0.5,
         freeze_backbone: bool = False,
@@ -586,34 +734,36 @@ class DINOv3ViTRegressionModel(nn.Module):
         # 根据pooling方案创建不同的头
         head_kwargs = head_kwargs or {}
         
-        if pooling == 'gap':
-            # 方案A: GAP + MLP
+        if pooling == 'linear':
+            # 方案1: 直接线性层回归（使用 CLS token）
+            self.head = nn.Linear(embed_dim, num_outputs)
+            print(f"[DINOv3 ViT] 方案: Linear (直接使用 CLS token)")
+        elif pooling == 'gap':
+            # 方案2: GAP + MLP
             # forward_features 返回 (B, N, C)，需要GAP得到 (B, C)
             linear_in_dim = embed_dim
             self.head = create_regression_head(
                 head_type, linear_in_dim, num_outputs, dropout, **head_kwargs
             )
-            print(f"[DINOv3 ViT] 方案A: GAP + {head_type} 回归头")
-            
+            print(f"[DINOv3 ViT] 方案: GAP + {head_type}")
         elif pooling == 'attention':
-            # 方案B: Attention Pooling
+            # 方案3: Attention Pooling
             num_heads = head_kwargs.get('num_heads', 8)
             hidden_dim = head_kwargs.get('hidden_dim', None)
             self.head = AttentionPoolingHead(
                 embed_dim, num_outputs, dropout, num_heads, hidden_dim
             )
-            print(f"[DINOv3 ViT] 方案B: Attention Pooling (heads={num_heads})")
-            
+            print(f"[DINOv3 ViT] 方案: Attention Pooling (heads={num_heads})")
         elif pooling == 'multiscale':
-            # 方案C: 多尺度特征融合
+            # 方案4: 多尺度特征融合
             num_scales = len(self.multiscale_layers)
             hidden_dims = head_kwargs.get('hidden_dims', [embed_dim * 2, embed_dim])
             self.head = MultiScaleFusionHead(
                 embed_dim, num_outputs, dropout, num_scales, hidden_dims
             )
-            print(f"[DINOv3 ViT] 方案C: 多尺度融合 (layers={self.multiscale_layers})")
+            print(f"[DINOv3 ViT] 方案: Multiscale (layers={self.multiscale_layers})")
         else:
-            raise ValueError(f"不支持的pooling方案: {pooling}。可选: 'gap', 'attention', 'multiscale'")
+            raise ValueError(f"不支持的pooling方案: {pooling}。可选: 'linear', 'gap', 'attention', 'multiscale'")
         
         print(f"[DINOv3 ViT] 特征维度: {embed_dim}")
     
@@ -625,23 +775,25 @@ class DINOv3ViTRegressionModel(nn.Module):
             output: Regression output [B, num_outputs]
         """
         if self.pooling == 'multiscale':
-            # 方案C: 提取多层特征
+            # 方案4: 提取多层特征
             features_list = self._extract_multiscale_features(x)
             return self.head(features_list)
+        elif self.pooling == 'linear':
+            # 方案1: 直接使用 CLS token
+            features = self.backbone.forward_features(x)  # (B, N, C)
+            cls_token = features[:, 0, :]  # (B, C) - 第一个 token 是 CLS
+            return self.head(cls_token)
         else:
-            # 方案A和B: 使用forward_features获取空间特征
+            # 方案2和3: 使用forward_features获取空间特征
             features = self.backbone.forward_features(x)  # (B, N, C)
             
             if self.pooling == 'gap':
-                # 方案A: Global Average Pooling
-                # 跳过CLS token和register tokens，只对patch tokens做GAP
-                # 假设第一个token是CLS，接下来可能有register tokens
-                # 对于DINOv3 ViT，通常结构是: CLS + 4 registers + patches
-                # 我们取所有tokens的平均（或者只取patches）
+                # 方案2: Global Average Pooling
+                # 取所有tokens的平均（包括CLS和patches）
                 features = features.mean(dim=1)  # (B, C)
                 return self.head(features)
             else:
-                # 方案B: Attention Pooling (保留空间特征)
+                # 方案3: Attention Pooling (保留空间特征)
                 # features已经是 (B, N, C)，直接传给AttentionPoolingHead
                 # DINOv3 ViT结构: CLS (1) + Registers (4) + Patches (N)
                 # 跳过CLS和register tokens，只使用patch tokens
@@ -708,9 +860,20 @@ class DINOv3ViTRegressionModel(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            features = self.backbone.forward_features(x)  # (B, N, C)
-            if self.pooling == 'gap':
+            if self.pooling == 'linear':
+                features = self.backbone.forward_features(x)  # (B, N, C)
+                features = features[:, 0, :]  # (B, C) - CLS token
+            elif self.pooling == 'gap':
+                features = self.backbone.forward_features(x)  # (B, N, C)
                 features = features.mean(dim=1)  # (B, C)
+            elif self.pooling == 'attention':
+                features = self.backbone.forward_features(x)  # (B, N, C)
+                if features.shape[1] > 5:
+                    features = features[:, 5:, :]  # (B, N_patches, C)
+            else:  # multiscale
+                features_list = self._extract_multiscale_features(x)
+                # 返回第一个特征（可以修改为返回所有特征）
+                features = features_list[0] if features_list else self.backbone.forward_features(x)
         return features
     
     def get_trainable_parameters(self) -> Tuple[int, int]:

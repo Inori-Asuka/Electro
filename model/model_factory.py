@@ -10,7 +10,7 @@ def create_dinov3_model(
     backbone_type: str = 'convnext',  # 'convnext' 或 'vit'
     model_path: str = '',
     num_outputs: int = 1,
-    pooling: str = 'gap',  # 'gap', 'attention', 'multiscale' (仅 ViT 支持后两者)
+    pooling: str = 'gap',  # 'linear', 'gap', 'attention', 'multiscale'
     head_type: str = 'mlp',
     dropout: float = 0.5,
     freeze_backbone: bool = False,
@@ -21,7 +21,7 @@ def create_dinov3_model(
     lora_dropout: float = 0.1,
     lora_modules: Optional[List[str]] = None,  # 仅 ViT: ['qkv', 'proj', 'mlp'] 或其组合
     head_kwargs: Optional[dict] = None,
-    multiscale_layers: Optional[List[int]] = None,  # 仅 ViT multiscale 方案
+    multiscale_layers: Optional[List[int]] = None,  # multiscale 方案的层索引
 ) -> nn.Module:
     """
     统一的 DINOv3 模型创建函数
@@ -30,8 +30,8 @@ def create_dinov3_model(
         backbone_type: 'convnext' 或 'vit'
         model_path: 模型权重路径
         num_outputs: 输出维度
-        pooling: pooling 方式 ('gap', 'attention', 'multiscale')
-        head_type: 回归头类型
+        pooling: pooling 方式 ('linear', 'gap', 'attention', 'multiscale')
+        head_type: 回归头类型 (仅用于 gap 方案)
         dropout: dropout 率
         freeze_backbone: 是否冻结 backbone
         freeze_layers: 要冻结的层列表
@@ -41,7 +41,9 @@ def create_dinov3_model(
         lora_dropout: LoRA dropout
         lora_modules: LoRA 模块选择 (仅 ViT): ['qkv', 'proj', 'mlp'] 或其组合
         head_kwargs: 回归头的额外参数
-        multiscale_layers: 多尺度融合的层索引 (仅 ViT multiscale)
+        multiscale_layers: 多尺度融合的层索引
+            - ConvNeXt: stage 索引，例如 [1, 2, 3] (默认)
+            - ViT: block 索引，例如 [6, 12, 18, 23] (默认)
     
     Returns:
         DINOv3RegressionModel 或 DINOv3ViTRegressionModel 实例

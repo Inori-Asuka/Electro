@@ -11,43 +11,74 @@ DINOv3-based regression model for TEM image analysis with traditional ML support
 - **`backbone_type: convnext`** (默认): 使用 DINOv3 ConvNeXt-Large
 - **`backbone_type: vit`**: 使用 DINOv3 ViT Large
 
-### 预测方案 (仅当使用 ViT 时)
+### Pooling 方案
 
-当 `backbone_type: vit` 时，可以通过 `pooling` 参数选择不同的预测方案：
+ConvNeXt 和 ViT 都支持四种 pooling 方案，通过 `pooling` 参数选择：
 
-#### 方案 A: GAP + MLP (`pooling: gap`)
-- **适用场景**: 活性值与材料的整体性质有关（例如整体孔隙率、均匀度）
-- **实现**: 对所有 Patch 特征做全局平均池化，然后通过 MLP 回归
+#### 方案 1: Linear (`pooling: linear`)
+- **适用场景**: 直接使用 CLS token 进行回归，最简单快速
+- **实现**: 
+  - ConvNeXt: 使用 `forward_features` 返回的 CLS token
+  - ViT: 使用第一个 token (CLS token)
+- **用法**:
 
 ```yaml
 dinov3:
-  backbone_type: vit
-  pooling: gap
-  head_type: mlp
+  backbone_type: convnext  # 或 vit
+  pooling: linear
 ```
 
-#### 方案 B: Attention Pooling (`pooling: attention`)
-- **适用场景**: 活性由某个具体的缺陷（如裂纹、杂质点）决定
-- **实现**: 保留空间特征，使用 Attention 机制学习关键 patch 的权重
+#### 方案 2: GAP (`pooling: gap`)
+- **适用场景**: 活性值与材料的整体性质有关（例如整体孔隙率、均匀度）
+- **实现**: 
+  - ConvNeXt: 对空间特征图做全局平均池化
+  - ViT: 对所有 tokens (包括 CLS 和 patches) 做平均
+- **用法**:
 
 ```yaml
 dinov3:
-  backbone_type: vit
+  backbone_type: convnext  # 或 vit
+  pooling: gap
+  head_type: mlp  # 可选: linear, mlp, attention, gated, residual
+```
+
+#### 方案 3: Attention (`pooling: attention`)
+- **适用场景**: 活性由某个具体的缺陷（如裂纹、杂质点）决定
+- **实现**: 
+  - ConvNeXt: 将空间特征 reshape 成序列，使用 Attention 机制学习关键区域
+  - ViT: 保留空间特征，使用 Attention 机制学习关键 patch 的权重
+- **用法**:
+
+```yaml
+dinov3:
+  backbone_type: convnext  # 或 vit
   pooling: attention
   head_kwargs:
     num_heads: 8
     hidden_dim: null  # null表示使用backbone的特征维度
 ```
 
-#### 方案 C: 多尺度特征融合 (`pooling: multiscale`)
+#### 方案 4: Multiscale (`pooling: multiscale`)
 - **适用场景**: 材料活性既取决于宏观结构（深层特征），也取决于微观边缘（浅层特征）
-- **实现**: 同时提取多个中间层特征（默认：第 6, 12, 18, 23 层），拼接后回归
+- **实现**: 
+  - ConvNeXt: 提取多个 stage 的特征（默认：stage 1, 2, 3）
+  - ViT: 提取多个 block 的特征（默认：第 6, 12, 18, 23 层）
+- **用法**:
 
 ```yaml
+# ConvNeXt
+dinov3:
+  backbone_type: convnext
+  pooling: multiscale
+  multiscale_layers: [1, 2, 3]  # ConvNeXt 有4个 stage (0-3)
+  head_kwargs:
+    hidden_dims: [3072, 1536]
+
+# ViT
 dinov3:
   backbone_type: vit
   pooling: multiscale
-  multiscale_layers: [6, 12, 18, 23]  # ViT Large 有24层
+  multiscale_layers: [6, 12, 18, 23]  # ViT Large 有24层 (0-23)
   head_kwargs:
     hidden_dims: [2048, 1024]
 ```
@@ -72,10 +103,17 @@ dinov3:
 
 项目提供了多个示例配置文件：
 
-**预测方案示例：**
-- `train/conf/config_vit_gap.yaml`: ViT + 方案A
-- `train/conf/config_vit_attention.yaml`: ViT + 方案B
-- `train/conf/config_vit_multiscale.yaml`: ViT + 方案C
+**ConvNeXt 示例：**
+- `train/conf/config_convnext_linear.yaml`: Linear
+- `train/conf/config.yaml`: GAP (默认)
+- `train/conf/config_convnext_attention.yaml`: Attention
+- `train/conf/config_convnext_multiscale.yaml`: Multiscale
+
+**ViT 示例：**
+- `train/conf/config_vit_linear.yaml`: Linear
+- `train/conf/config_vit_gap.yaml`: GAP
+- `train/conf/config_vit_attention.yaml`: Attention
+- `train/conf/config_vit_multiscale.yaml`: Multiscale
 
 **LoRA 模块选择示例：**
 - `train/conf/config_vit_lora_qkv.yaml`: 只微调 QKV
@@ -85,7 +123,8 @@ dinov3:
 使用示例配置文件：
 ```bash
 cd train
-python train.py --config-name=config_vit_attention
+python train.py --config-name=config_convnext_attention
+python train.py --config-name=config_vit_multiscale
 python train.py --config-name=config_vit_lora_qkv_mlp
 ```
 

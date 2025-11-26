@@ -14,14 +14,17 @@ dinov3:
   
   model_path: /data/wly/ckpt/dinov3/model.safetensors
   
-  # 预测方案 (仅当 backbone_type='vit' 时有效)
-  # 'gap': 方案A - Global Average Pooling + MLP (适用于整体性质)
-  # 'attention': 方案B - 保留空间特征 + Attention Pooling (适用于局部缺陷)
-  # 'multiscale': 方案C - 多尺度特征融合 (适用于宏观+微观结构)
-  pooling: gap  # 'gap', 'attention', 'multiscale'
+  # Pooling 方案 (ConvNeXt 和 ViT 都支持)
+  # 'linear': 直接线性层回归（使用 CLS token）
+  # 'gap': Global Average Pooling (适用于整体性质)
+  # 'attention': Attention Pooling (适用于局部缺陷)
+  # 'multiscale': 多尺度特征融合 (适用于宏观+微观结构)
+  pooling: gap  # 'linear', 'gap', 'attention', 'multiscale'
   
   # 多尺度融合的层索引 (仅当 pooling='multiscale' 时有效)
-  multiscale_layers: [6, 12, 18, 23]  # ViT Large 有24层，选择4个不同深度
+  # ConvNeXt: stage 索引，例如 [1, 2, 3] (ConvNeXt 有4个 stage: 0-3)
+  # ViT: block 索引，例如 [6, 12, 18, 23] (ViT Large 有24层: 0-23)
+  multiscale_layers: null  # null 使用默认值: ConvNeXt=[1,2,3], ViT=[6,12,18,23]
   
   head_type: linear # 'linear', 'mlp', 'attention', 'gated', 'residual'
   # freeze_backbone: true

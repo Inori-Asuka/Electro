@@ -1,0 +1,16 @@
+# 示例配置：ConvNeXt + Multiscale
+defaults:
+  - config
+
+exp: dinov3_convnext_multiscale
+
+dinov3:
+  backbone_type: convnext
+  pooling: multiscale  # 多尺度特征融合
+  
+  # 多尺度融合的 stage 索引 (ConvNeXt 有4个 stage，索引从0开始)
+  multiscale_layers: [1, 2, 3]  # 提取后3个 stage 的特征
+  
+  head_kwargs:
+    hidden_dims: [3072, 1536]  # 多尺度融合的隐藏层维度
+

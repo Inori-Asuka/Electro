@@ -1,0 +1,14 @@
+# 示例配置：ConvNeXt + Attention Pooling
+defaults:
+  - config
+
+exp: dinov3_convnext_attention
+
+dinov3:
+  backbone_type: convnext
+  pooling: attention  # Attention Pooling
+  
+  head_kwargs:
+    num_heads: 8
+    hidden_dim: null  # null表示使用backbone的特征维度
+
