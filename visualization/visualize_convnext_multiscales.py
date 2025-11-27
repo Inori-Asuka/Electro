@@ -21,44 +21,109 @@ from model import DINOv3RegressionModel
 
 
 class MultiscaleFeatureExtractor:
-    """Extract features from multiple stages of ConvNeXt"""
-    def __init__(self, model):
+    """
+    Extract features from multiple stages of ConvNeXt.
+    Supports both Activation-only (Forward) and Grad-CAM (Forward+Backward).
+    """
+    def __init__(self, model, use_grad=False):
         self.model = model
-        self.features = {}
+        self.use_grad = use_grad
+        self.activations = {}
+        self.gradients = {}
         self.handles = []
         
     def hook_layers(self):
-        """Register hooks to capture features from different stages"""
-        def make_hook(stage_name):
+        """Register hooks to capture features/gradients from different stages"""
+        
+        def forward_hook(stage_name):
             def hook(module, input, output):
-                # Store the output feature map
+                # Store activations
                 if isinstance(output, torch.Tensor):
-                    self.features[stage_name] = output.detach()
+                    self.activations[stage_name] = output
                 else:
-                    self.features[stage_name] = output
+                    self.activations[stage_name] = output
+            return hook
+
+        def backward_hook(stage_name):
+            def hook(module, grad_input, grad_output):
+                # Store gradients
+                # grad_output[0] corresponds to the gradient of loss w.r.t module output
+                if grad_output[0] is not None:
+                    self.gradients[stage_name] = grad_output[0].detach()
             return hook
         
         backbone = self.model.backbone
         
-        # Hook different stages
         if hasattr(backbone, 'stages'):
             stages = backbone.stages
             for i, stage in enumerate(stages):
                 stage_name = f'stage{i+1}'
-                handle = stage.register_forward_hook(make_hook(stage_name))
-                self.handles.append(handle)
+                # Register Forward Hook
+                self.handles.append(stage.register_forward_hook(forward_hook(stage_name)))
+                
+                # Register Backward Hook only if use_grad is True
+                if self.use_grad:
+                    self.handles.append(stage.register_full_backward_hook(backward_hook(stage_name)))
         else:
             print("Warning: Cannot find stages in backbone")
     
+    
+    def _compute_grad_cam(self, activations, gradients):
+        """Compute Grad-CAM heatmap: weights * activations"""
+        # activations: [1, C, H, W]
+        # gradients: [1, C, H, W]
+        
+        # 1. Global Average Pooling on gradients -> Weights [1, C, 1, 1]
+        weights = torch.mean(gradients, dim=(2, 3), keepdim=True)
+        
+        # 2. Weighted sum of activations
+        cam = torch.sum(weights * activations, dim=1, keepdim=True) # [1, 1, H, W]
+        
+        # 3. ReLU
+        cam = F.relu(cam)
+        
+        return cam.detach()    
+    
+    
     def extract_features(self, input_tensor):
-        """Extract features from all stages"""
-        self.features = {}
+        """
+        Extract features from all stages.
+        If use_grad=True, performs backward pass and computes Grad-CAM.
+        """
+        self.activations = {}
+        self.gradients = {}
         self.model.eval()
         
-        with torch.no_grad():
-            _ = self.model(input_tensor)
-        
-        return self.features
+        # Forward pass
+        # 如果需要计算梯度，这里不能用 no_grad
+        if self.use_grad:
+            self.model.zero_grad()
+            output = self.model(input_tensor)
+            
+            # Backward pass for regression (gradient w.r.t output)
+            output.backward(torch.ones_like(output), retain_graph=False)
+            
+            # Compute CAM for each stage
+            final_maps = {}
+            for name, act in self.activations.items():
+                if name in self.gradients:
+                    grad = self.gradients[name]
+                    # Compute Grad-CAM
+                    cam = self._compute_grad_cam(act, grad)
+                    final_maps[name] = cam
+                else:
+                    print(f"Warning: No gradient captured for {name}")
+                    final_maps[name] = act.detach() # Fallback to activation
+            return final_maps
+            
+        else:
+            # Traditional forward-only extraction
+            with torch.no_grad():
+                _ = self.model(input_tensor)
+            
+            # Detach all activations
+            return {k: v.detach() for k, v in self.activations.items()}
+    
     
     def __del__(self):
         """Remove hooks"""
@@ -72,35 +137,24 @@ class MultiscaleFeatureExtractor:
 
 def process_feature_map(features, original_size):
     """
-    Process feature map to create heatmap similar to Grad-CAM
-    
-    Args:
-        features: Feature tensor or numpy array
-        original_size: (width, height) of original image
-    
-    Returns:
-        cam: Normalized CAM heatmap [H, W]
+    Process feature map to create heatmap.
+    Handles both raw features (C, H, W) and CAM (1, H, W).
     """
-    # Handle different feature shapes
     if isinstance(features, torch.Tensor):
-        if len(features.shape) == 4:
-            # [B, C, H, W] -> take first sample and average over channels
-            features = features[0].mean(0).cpu().numpy()
-        elif len(features.shape) == 3:
-            # [C, H, W] -> average over channels
-            features = features.mean(0).cpu().numpy()
-        elif len(features.shape) == 2:
-            # [H, W]
-            features = features.cpu().numpy()
-        else:
-            return None
-    else:
-        if isinstance(features, np.ndarray):
-            if len(features.shape) > 2:
-                features = features.mean(0)
-        else:
-            return None
+        features = features.cpu().numpy()
     
+    if isinstance(features, np.ndarray):
+        # Case 1: Raw features [1, C, H, W] or [C, H, W] -> Do Channel Average
+        if len(features.shape) == 4:
+            features = features[0] # -> [C, H, W]
+            
+        if len(features.shape) == 3:
+            # Check if it is already a CAM (C=1) or raw features (C>1)
+            if features.shape[0] == 1:
+                features = features[0] # [H, W] (It's already a CAM)
+            else:
+                features = features.mean(0) # [H, W] (Average Channel Activation)
+                
     # Normalize to [0, 1]
     if features.max() > features.min():
         cam = (features - features.min()) / (features.max() - features.min())
@@ -314,6 +368,8 @@ def main():
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples to visualize')
     parser.add_argument('--checkpoint_path', type=str, default=None, help='Model checkpoint path')
     
+    # 利用梯度信息进行可视化时需要有具体的回归头
+    parser.add_argument('--use_grad', type=bool, default=True)
     args = parser.parse_args()
     
     # Load config

@@ -5,127 +5,9 @@ from typing import Optional, List, Tuple
 import timm
 from safetensors.torch import load_file
 
-# Removed PEFT import - using manual LoRA implementation instead
+from layers.regression import LinearRegressionHead,MLPRegressionHead,AttentionRegressionHead,GatedRegressionHead,ResidualRegressionHead
+from layers.aggregate import AttentionPoolingHead,MultiScaleFusionHead
 
-
-
-class RegressionHead(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5):
-        super().__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.dropout = dropout
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
-
-class LinearRegressionHead(RegressionHead):
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5):
-        super().__init__(input_dim, output_dim, dropout)
-        self.head = nn.Linear(input_dim, output_dim)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(x)
-
-
-class MLPRegressionHead(RegressionHead):
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5,
-                 hidden_dims: List[int] = [512, 256, 128]):
-        super().__init__(input_dim, output_dim, dropout)
-        layers = []
-        prev_dim = input_dim
-        for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(prev_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.GELU(),
-                nn.Dropout(dropout)
-            ])
-            prev_dim = hidden_dim
-        layers.append(nn.Linear(prev_dim, output_dim))
-        self.head = nn.Sequential(*layers)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(x)
-
-
-class AttentionRegressionHead(RegressionHead):
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5,
-                 num_heads: int = 8, num_layers: int = 2):
-        super().__init__(input_dim, output_dim, dropout)
-        self.num_heads = num_heads
-        self.num_layers = num_layers
-        
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=input_dim,
-            nhead=num_heads,
-            dim_feedforward=input_dim * 4,
-            dropout=dropout,
-            activation='gelu',
-            batch_first=True
-        )
-        self.attention = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        
-        self.output = nn.Sequential(
-            nn.Linear(input_dim, input_dim // 2),
-            nn.LayerNorm(input_dim // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(input_dim // 2, output_dim)
-        )
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.unsqueeze(1)
-        x = self.attention(x)
-        x = x.squeeze(1)
-        return self.output(x)
-
-
-class GatedRegressionHead(RegressionHead):
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5,
-                 hidden_dim: Optional[int] = None, use_simple: bool = False):
-        super().__init__(input_dim, output_dim, dropout)
-        if hidden_dim is None:
-            hidden_dim = input_dim
-        
-        if use_simple:
-            self.main = nn.Linear(input_dim, output_dim)
-            self.gate = nn.Sequential(
-                nn.Linear(input_dim, input_dim),
-                nn.Sigmoid()
-            )
-        else:
-            self.main_branch = nn.Sequential(
-                nn.Linear(input_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_dim, hidden_dim // 2),
-                nn.LayerNorm(hidden_dim // 2),
-                nn.GELU(),
-            )
-            self.gate_branch = nn.Sequential(
-                nn.Linear(input_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_dim, hidden_dim // 2),
-                nn.Sigmoid()
-            )
-            self.output = nn.Linear(hidden_dim // 2, output_dim)
-        self.use_simple = use_simple
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.use_simple:
-            main_out = self.main(x)
-            gate_weights = self.gate(x)
-            return main_out * gate_weights
-        else:
-            main_features = self.main_branch(x)
-            gate_weights = self.gate_branch(x)
-            gated_features = main_features * gate_weights
-            return self.output(gated_features)
 
 
 class LoRALinear(nn.Module):
@@ -177,37 +59,8 @@ class LoRALinear(nn.Module):
         return f'r={self.r}, alpha={self.alpha}, scaling={self.scaling:.4f}'
 
 
-class ResidualRegressionHead(RegressionHead):
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5,
-                 hidden_dim: int = 512, num_blocks: int = 3):
-        super().__init__(input_dim, output_dim, dropout)
-        self.blocks = nn.ModuleList()
-        prev_dim = input_dim
-        for i in range(num_blocks):
-            block = nn.Sequential(
-                nn.Linear(prev_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.GELU(),
-                nn.Dropout(dropout)
-            )
-            self.blocks.append(block)
-            prev_dim = hidden_dim
-        
-        self.output = nn.Linear(prev_dim, output_dim)
-        self.shortcut = nn.Linear(input_dim, prev_dim) if input_dim != prev_dim else nn.Identity()
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        residual = self.shortcut(x)
-        out = x
-        for block in self.blocks:
-            out = block(out)
-        out = out + residual
-        return self.output(out)
-
-
 def create_regression_head(head_type: str, input_dim: int, output_dim: int = 1,
-                          dropout: float = 0.5, **kwargs) -> RegressionHead:
-
+                          dropout: float = 0.5, **kwargs):
     head_type = head_type.lower()
     if head_type == 'linear':
         return LinearRegressionHead(input_dim, output_dim, dropout)
@@ -227,7 +80,7 @@ def create_regression_head(head_type: str, input_dim: int, output_dim: int = 1,
         num_blocks = kwargs.get('num_blocks', 3)
         return ResidualRegressionHead(input_dim, output_dim, dropout, hidden_dim, num_blocks)
     else:
-        raise ValueError(f"不支持的回归头类型: {head_type}")
+        raise ValueError(f"No Supported Regression Head Type: {head_type}")
 
 
 class DINOv3RegressionModel(nn.Module):
@@ -475,113 +328,6 @@ class DINOv3RegressionModel(nn.Module):
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.parameters())
         return trainable, total
-
-
-class AttentionPoolingHead(nn.Module):
-    """Attention Pooling Head for spatial features"""
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5,
-                 num_heads: int = 8, hidden_dim: Optional[int] = None):
-        super().__init__()
-        if hidden_dim is None:
-            hidden_dim = input_dim
-        
-        # Learnable query token for attention pooling
-        self.query = nn.Parameter(torch.randn(1, 1, hidden_dim))
-        
-        # Attention mechanism
-        self.attention = nn.MultiheadAttention(
-            embed_dim=hidden_dim,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True
-        )
-        
-        # Projection layers
-        self.input_proj = nn.Linear(input_dim, hidden_dim)
-        self.output_proj = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.LayerNorm(hidden_dim // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim)
-        )
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: (B, N, C) - Batch, Num_patches, Channels
-        Returns:
-            output: (B, output_dim)
-        """
-        B, N, C = x.shape
-        
-        # Project input features
-        x_proj = self.input_proj(x)  # (B, N, hidden_dim)
-        
-        # Expand query to batch size
-        query = self.query.expand(B, -1, -1)  # (B, 1, hidden_dim)
-        
-        # Attention pooling: query attends to all patches
-        attn_out, attn_weights = self.attention(query, x_proj, x_proj)  # (B, 1, hidden_dim)
-        
-        # Squeeze and project to output
-        pooled = attn_out.squeeze(1)  # (B, hidden_dim)
-        output = self.output_proj(pooled)  # (B, output_dim)
-        
-        return output
-
-
-class MultiScaleFusionHead(nn.Module):
-    """Multi-scale feature fusion head"""
-    def __init__(self, input_dim: int, output_dim: int = 1, dropout: float = 0.5,
-                 num_scales: int = 4, hidden_dims: Optional[List[int]] = None):
-        super().__init__()
-        self.num_scales = num_scales
-        
-        if hidden_dims is None:
-            hidden_dims = [input_dim // 2, input_dim // 4]
-        
-        # Feature fusion layers
-        self.fusion_layers = nn.ModuleList()
-        prev_dim = input_dim * num_scales
-        
-        for hidden_dim in hidden_dims:
-            self.fusion_layers.append(nn.Sequential(
-                nn.Linear(prev_dim, hidden_dim),
-                nn.LayerNorm(hidden_dim),
-                nn.GELU(),
-                nn.Dropout(dropout)
-            ))
-            prev_dim = hidden_dim
-        
-        # Output layer
-        self.output = nn.Linear(prev_dim, output_dim)
-    
-    def forward(self, features_list: List[torch.Tensor]) -> torch.Tensor:
-        """
-        Args:
-            features_list: List of (B, N, C) tensors from different layers
-        Returns:
-            output: (B, output_dim)
-        """
-        # Global average pooling for each scale
-        pooled_features = []
-        for feat in features_list:
-            # feat: (B, N, C)
-            pooled = feat.mean(dim=1)  # (B, C)
-            pooled_features.append(pooled)
-        
-        # Concatenate all scales
-        fused = torch.cat(pooled_features, dim=1)  # (B, num_scales * C)
-        
-        # Pass through fusion layers
-        x = fused
-        for layer in self.fusion_layers:
-            x = layer(x)
-        
-        # Output
-        output = self.output(x)
-        return output
 
 
 class DINOv3ViTRegressionModel(nn.Module):
