@@ -8,6 +8,7 @@ dinov3:
   backbone_type: resnet
   model_name: resnet18 
   pretrained: true
-  pooling: linear
+  pooling: gap
+  head_type: mlp
   
   freeze_backbone: true

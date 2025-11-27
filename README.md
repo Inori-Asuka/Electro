@@ -96,7 +96,7 @@ python train.py
 
 ```bash
 cd test
-python test.py <model_path> [config_path]
+python test.py --config /path/to/config.yaml --checkpoint /path/to/checkpoint --output-dir /path/to/output
 ```
 
 ### Feature Extraction

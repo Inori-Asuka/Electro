@@ -57,7 +57,7 @@ training:
   dropout: 0.5
 
 loss:
-  type: smooth_l1  # 'mse', 'smooth_l1', 'huber'
+  type: mse  # 'mse', 'smooth_l1', 'huber'
   smooth_l1_beta: 1.0
   huber_delta: 1.0
 
