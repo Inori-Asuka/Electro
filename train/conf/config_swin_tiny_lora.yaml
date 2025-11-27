@@ -1,0 +1,21 @@
+# 示例配置：Swin-T Tiny + LoRA 微调
+defaults:
+  - config
+
+exp: swin_tiny_lora
+
+dinov3:
+  backbone_type: swin-t
+  model_name: swin_tiny_patch4_window7_224
+  pretrained: true
+  pooling: gap
+  head_type: mlp
+  
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_modules: ['qkv', 'proj', 'mlp']  # 微调所有模块，或选择 ['qkv'], ['mlp'], ['qkv', 'mlp'] 等
+  
+  freeze_backbone: false
+

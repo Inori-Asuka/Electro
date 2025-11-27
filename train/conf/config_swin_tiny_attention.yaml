@@ -1,0 +1,19 @@
+# 示例配置：Swin-T Tiny + Attention Pooling
+defaults:
+  - config
+
+exp: swin_tiny_attention
+
+dinov3:
+  backbone_type: swin-t
+  model_name: swin_tiny_patch4_window7_224
+  pretrained: true
+  pooling: attention
+  head_type: mlp
+  
+  head_kwargs:
+    num_heads: 8
+    hidden_dim: null  # null 表示使用 embed_dim (Swin-T Tiny 的 embed_dim 是 768)
+  
+  freeze_backbone: false
+

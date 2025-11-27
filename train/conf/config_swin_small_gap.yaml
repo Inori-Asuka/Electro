@@ -1,0 +1,15 @@
+# 示例配置：Swin-S Small + GAP + MLP
+defaults:
+  - config
+
+exp: swin_small_gap
+
+dinov3:
+  backbone_type: swin-t
+  model_name: swin_small_patch4_window7_224  # 中等大小的 Swin 模型
+  pretrained: true
+  pooling: gap
+  head_type: mlp
+  
+  freeze_backbone: false
+

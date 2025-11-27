@@ -1,0 +1,18 @@
+# 示例配置：ViT Base (普通 ViT) + Multiscale 融合
+defaults:
+  - config
+
+exp: vit_base_multiscale
+
+dinov3:
+  backbone_type: vit  # 普通 ViT，使用 timm 预训练
+  model_name: vit_base_patch16_224
+  pretrained: true
+  pooling: multiscale
+  head_type: mlp
+  
+  multiscale_layers: [6, 12, 18]  # ViT Base 有 12 层，提取第 6, 12, 18 层的特征（索引从 0 开始）
+  
+  head_kwargs:
+    hidden_dims: [1536, 768]  # embed_dim * 2, embed_dim (ViT Base 的 embed_dim 是 768)
+

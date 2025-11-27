@@ -1,0 +1,13 @@
+# 示例配置：ViT Base (普通 ViT，非 DINOv3) + GAP + MLP
+defaults:
+  - config
+
+exp: vit_base_gap
+
+dinov3:
+  backbone_type: vit  # 普通 ViT，使用 timm 预训练
+  model_name: vit_base_patch16_224  # 'vit_tiny_patch16_224', 'vit_small_patch16_224', 'vit_base_patch16_224', 'vit_large_patch16_224'
+  pretrained: true  # 使用 ImageNet 预训练权重
+  pooling: gap
+  head_type: mlp
+

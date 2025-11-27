@@ -9,8 +9,13 @@ data:
 
 # DINOv3 配置
 dinov3:
-  # 模型类型: 'convnext' 或 'vit'
-  backbone_type: convnext  # 'convnext' 使用 ConvNeXt-Large, 'vit' 使用 ViT Large
+  # 模型类型: 'convnext', 'dinov3-vit', 'vit', 'resnet', 'swin-t'
+  # 'convnext': DINOv3 ConvNeXt-Large (需要 model_path)
+  # 'dinov3-vit': DINOv3 ViT Large (需要 model_path)
+  # 'vit': 普通 ViT (使用 timm 预训练，需要 model_name 和 pretrained)
+  # 'resnet': ResNet (使用 timm 预训练，需要 model_name 和 pretrained)
+  # 'swin-t': Swin Transformer (使用 timm 预训练，需要 model_name 和 pretrained)
+  backbone_type: convnext
   
   model_path: /data/wly/ckpt/dinov3_convnext_large/model.safetensors
   

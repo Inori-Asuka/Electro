@@ -1,0 +1,25 @@
+# 示例配置：ResNet50 + Multiscale 融合
+defaults:
+  - config
+
+exp: resnet50_multiscale
+
+dinov3:
+  backbone_type: resnet
+  model_name: resnet50
+  pretrained: true
+  pooling: multiscale
+  head_type: mlp
+  
+  multiscale_layers: [2, 3, 4]  # ResNet 有5个 stage (0-4)，提取后3个 stage 的特征
+  # 0: stem + layer1
+  # 1: layer1
+  # 2: layer2
+  # 3: layer3
+  # 4: layer4
+  
+  head_kwargs:
+    hidden_dims: [4096, 2048]  # embed_dim * 2, embed_dim (ResNet50 的 embed_dim 是 2048)
+  
+  freeze_backbone: false
+

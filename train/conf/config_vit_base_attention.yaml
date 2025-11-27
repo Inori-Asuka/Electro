@@ -1,0 +1,17 @@
+# 示例配置：ViT Base (普通 ViT) + Attention Pooling
+defaults:
+  - config
+
+exp: vit_base_attention
+
+dinov3:
+  backbone_type: vit  # 普通 ViT，使用 timm 预训练
+  model_name: vit_base_patch16_224
+  pretrained: true
+  pooling: attention
+  head_type: mlp
+  
+  head_kwargs:
+    num_heads: 8
+    hidden_dim: null  # null 表示使用 embed_dim
+

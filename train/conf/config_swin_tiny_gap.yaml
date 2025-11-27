@@ -1,0 +1,15 @@
+# 示例配置：Swin-T Tiny + GAP + MLP
+defaults:
+  - config
+
+exp: swin_tiny_gap
+
+dinov3:
+  backbone_type: swin-t  # Swin Transformer，使用 timm 预训练
+  model_name: swin_tiny_patch4_window7_224  # 'swin_tiny_patch4_window7_224', 'swin_small_patch4_window7_224', 'swin_base_patch4_window7_224'
+  pretrained: true  # 使用 ImageNet 预训练权重
+  pooling: gap
+  head_type: mlp
+  
+  freeze_backbone: false
+

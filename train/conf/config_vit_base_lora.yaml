@@ -1,0 +1,19 @@
+# 示例配置：ViT Base (普通 ViT) + LoRA 微调
+defaults:
+  - config
+
+exp: vit_base_lora
+
+dinov3:
+  backbone_type: vit  # 普通 ViT，使用 timm 预训练
+  model_name: vit_base_patch16_224
+  pretrained: true
+  pooling: gap
+  head_type: mlp
+  
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_modules: ['qkv', 'proj', 'mlp']  # 微调所有模块，或选择 ['qkv'], ['mlp'], ['qkv', 'mlp'] 等
+

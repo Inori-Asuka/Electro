@@ -1,0 +1,18 @@
+# 示例配置：ResNet50 + GAP + MLP
+defaults:
+  - config
+
+exp: resnet50_gap
+
+dinov3:
+  backbone_type: resnet  # ResNet，使用 timm 预训练
+  model_name: resnet50  # 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'
+  pretrained: true  # 使用 ImageNet 预训练权重
+  pooling: gap
+  head_type: mlp
+  
+  # ResNet 不支持 LoRA（CNN 架构主要由卷积层组成）
+  freeze_backbone: false  # 全参数微调
+  # freeze_backbone: true  # 或冻结 backbone，仅训练回归头
+  # freeze_layers: ['layer1', 'layer2']  # 或部分冻结
+

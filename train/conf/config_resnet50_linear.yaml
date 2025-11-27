@@ -1,0 +1,15 @@
+# 示例配置：ResNet50 + Linear 回归
+defaults:
+  - config
+
+exp: resnet50_linear
+
+dinov3:
+  backbone_type: resnet
+  model_name: resnet50
+  pretrained: true
+  pooling: linear  # 直接线性层回归
+  head_type: linear  # 对于 linear pooling，head_type 会被忽略
+  
+  freeze_backbone: false
+
