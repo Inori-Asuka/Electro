@@ -5,9 +5,9 @@ from typing import Optional, List, Tuple
 import timm
 from safetensors.torch import load_file
 
-from layers.regression import LinearRegressionHead,MLPRegressionHead,AttentionRegressionHead,GatedRegressionHead,ResidualRegressionHead
-from layers.aggregate import AttentionPoolingHead,MultiScaleFusionHead
-from layers.lora import LoRALinear
+from .layers.regression import LinearRegressionHead,MLPRegressionHead,AttentionRegressionHead,GatedRegressionHead,ResidualRegressionHead
+from .layers.aggregate import AttentionPoolingHead,MultiScaleFusionHead
+from .layers.lora import LoRALinear
 
 
 def create_regression_head(head_type: str, input_dim: int, output_dim: int = 1,
@@ -462,20 +462,12 @@ class DINOv3ViTRegressionModel(nn.Module):
             cls_token = features[:, 0, :]  # (B, C) - 第一个 token 是 CLS
             return self.head(cls_token)
         else:
-            # 方案2和3: 使用forward_features获取空间特征
             features = self.backbone.forward_features(x)  # (B, N, C)
             
             if self.pooling == 'gap':
-                # 方案2: Global Average Pooling
-                # 取所有tokens的平均（包括CLS和patches）
                 features = features.mean(dim=1)  # (B, C)
                 return self.head(features)
             else:
-                # 方案3: Attention Pooling (保留空间特征)
-                # features已经是 (B, N, C)，直接传给AttentionPoolingHead
-                # DINOv3 ViT结构: CLS (1) + Registers (4) + Patches (N)
-                # 跳过CLS和register tokens，只使用patch tokens
-                # 前5个tokens是CLS+registers，其余是patches
                 if features.shape[1] > 5:
                     patch_features = features[:, 5:, :]  # (B, N_patches, C)
                 else:
@@ -550,7 +542,6 @@ class DINOv3ViTRegressionModel(nn.Module):
                     features = features[:, 5:, :]  # (B, N_patches, C)
             else:  # multiscale
                 features_list = self._extract_multiscale_features(x)
-                # 返回第一个特征（可以修改为返回所有特征）
                 features = features_list[0] if features_list else self.backbone.forward_features(x)
         return features
     
@@ -567,9 +558,6 @@ class ResNetRegressionModel(nn.Module):
     - 'gap': Global Average Pooling
     - 'attention': Attention Pooling（将空间特征 reshape 成序列）
     - 'multiscale': 多尺度特征融合
-    
-    注意：ResNet 是 CNN 架构，主要由卷积层组成，不支持 LoRA 微调。
-    支持冻结策略（freeze_backbone 或 freeze_layers）和全参数微调。
     """
     
     def __init__(

@@ -1,0 +1,13 @@
+# 示例配置：ResNet18 + GAP + MLP (轻量级模型)
+defaults:
+  - config
+
+exp: resnet18_gap
+
+dinov3:
+  backbone_type: resnet
+  model_name: resnet18 
+  pretrained: true
+  pooling: linear
+  
+  freeze_backbone: true

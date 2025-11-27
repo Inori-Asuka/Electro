@@ -1,0 +1,10 @@
+# 示例配置：ConvNeXt + Linear (直接使用 CLS token)
+defaults:
+  - config
+
+exp: dinov3_convnext_linear
+
+dinov3:
+  backbone_type: convnext
+  head: gap
+  head_type: mlp

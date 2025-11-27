@@ -1,0 +1,22 @@
+defaults:
+  - config
+
+exp: dinov3_vit_large_multiscale
+
+dinov3:
+  backbone_type: dinov3-vit  # 使用 ViT Large
+  model_path: /data/wly/ckpt/dinov3_vitl16/model.safetensors
+  pooling: multiscale  
+  
+  multiscale_layers: [5, 11, 17, 23]
+  
+    
+  use_lora: true
+  lora_r: 8
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_modules: ['qkv']  # 只微调 attention 的 QKV 模块
+
+  head_kwargs:
+    hidden_dims: [2048, 1024] 
+

@@ -1,0 +1,18 @@
+# 示例配置：ViT Large + LoRA 只微调 QKV
+defaults:
+  - config
+
+exp: dinov3_vit_large_lora_qkv
+
+dinov3:
+  backbone_type: vit
+  model_path: /data/wly/ckpt/dinov3_vitl16/model.safetensors
+  pooling: linear
+  head_type: linear
+  
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_modules: ['qkv']  # 只微调 attention 的 QKV 模块
+

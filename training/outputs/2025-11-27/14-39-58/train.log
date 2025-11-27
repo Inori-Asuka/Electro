@@ -1,0 +1,4 @@
+[2025-11-27 14:39:58,920][timm.models._builder][INFO] - Loading pretrained weights from Hugging Face hub (timm/resnet50.a1_in1k)
+[2025-11-27 14:40:03,951][huggingface_hub.utils._http][WARNING] - '(MaxRetryError("HTTPSConnectionPool(host='huggingface.co', port=443): Max retries exceeded with url: /timm/resnet50.a1_in1k/resolve/main/model.safetensors (Caused by SSLError(SSLEOFError(8, 'EOF occurred in violation of protocol (_ssl.c:992)')))"), '(Request ID: 784bb49e-06d8-431c-9b26-b14c8be07fd8)')' thrown while requesting HEAD https://huggingface.co/timm/resnet50.a1_in1k/resolve/main/model.safetensors
+[2025-11-27 14:40:03,952][huggingface_hub.utils._http][WARNING] - Retrying in 1s [Retry 1/5].
+[2025-11-27 14:40:05,489][timm.models._hub][INFO] - [timm/resnet50.a1_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.

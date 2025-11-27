@@ -77,7 +77,7 @@ dinov3:
 
 使用配置文件：
 ```bash
-cd train
+cd training
 python train.py --config-name=config_convnext_attention
 python train.py --config-name=config_vit_multiscale
 python train.py --config-name=config_vit_lora_qkv_mlp
@@ -88,27 +88,28 @@ python train.py --config-name=config_vit_lora_qkv_mlp
 ### Training
 
 ```bash
-cd train
+cd training
 python train.py
 ```
 
 ### Testing
 
 ```bash
-python run_test.py <model_path> [config_path]
+cd test
+python test.py <model_path> [config_path]
 ```
 
 ### Feature Extraction
 
 ```bash
-cd train
-python extract_features.py
+cd training
+ python extract_features.py --config-path .....
 ```
 
 ### Traditional ML Regression
 
 ```bash
-cd train
+cd training
 python ml_regression.py --features_dir ../checkpoints/my_experiment/features --output_dir ../checkpoints/my_experiment/ml_results
 ```
 
